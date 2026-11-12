@@ -1,0 +1,45 @@
+const a = require('node:assert');
+const L = require('./chord-scroll.user.js');
+a.deepStrictEqual(L.chordPitchClasses('C', 0), [0, 4, 7]);
+a.deepStrictEqual(L.chordPitchClasses('Am', 0), [9, 0, 4]);
+a.deepStrictEqual(L.chordPitchClasses('F#m7', 0), [6, 9, 1]);
+a.deepStrictEqual(L.chordPitchClasses('Bb', 0), [10, 2, 5]);
+a.deepStrictEqual(L.chordPitchClasses('G/B', 0), [7, 11, 2]);
+a.deepStrictEqual(L.chordPitchClasses('Cmaj7', 0), [0, 4, 7]);
+a.deepStrictEqual(L.chordPitchClasses('Dsus4', 0), [2, 7, 9]);
+a.deepStrictEqual(L.chordPitchClasses('C', 2), [2, 6, 9]);
+a.strictEqual(L.chordPitchClasses('N.C.', 0), null);
+a.strictEqual(L.chordPitchClasses('', 0), null);
+
+// spectrum with one peak at 440 Hz → pitch class 9 (A) dominates
+const sr = 48000, n = 8192, db = new Float32Array(n / 2).fill(-120);
+db[Math.round(440 * n / sr)] = 0;
+const ch = L.chromaFromSpectrum(db, sr, n);
+a.strictEqual(ch.indexOf(Math.max(...ch)), 9);
+
+const pc = (...p) => { const c = Array(12).fill(0); p.forEach(i => c[i] = 1); return c; };
+a.ok(L.score(pc(0, 4, 7), [0, 4, 7]) > L.score(pc(0, 4, 7), [7, 11, 2]));
+a.strictEqual(L.score(Array(12).fill(0), [0, 4, 7]), 0);
+
+const steps = L.buildSteps(['C', 'C', 'N.C.', 'G', 'Am', 'F'], 0);
+a.deepStrictEqual(steps.map(s => s.first), [0, 3, 4, 5]);
+
+const f = L.createFollower(steps);
+f.feed(pc(7, 11, 2)); f.feed(pc(7, 11, 2));
+a.strictEqual(f.index, 0);                    // 2 frames < hold
+f.feed(pc(7, 11, 2));
+a.strictEqual(f.index, 1);                    // advanced to G
+for (let i = 0; i < 5; i++) f.feed(Array(12).fill(0));
+a.strictEqual(f.index, 1);                    // silence does not advance
+for (let i = 0; i < 3; i++) f.feed(pc(5, 9, 0));
+a.strictEqual(f.index, 3);                    // skipped Am, recovered at F
+for (let i = 0; i < 5; i++) f.feed(pc(0, 4, 7));
+a.strictEqual(f.index, 3);                    // never past the end / backwards
+f.jump(0); a.strictEqual(f.index, 0);
+
+const tops = [10, 10, 10, 10, 40, 80, 120];
+a.strictEqual(L.rowAhead(tops, 0), 5);                 // two rows below the intro row
+a.strictEqual(L.rowAhead(tops, 5), 6);                 // only one row left -> last chord
+a.strictEqual(L.rowAhead(tops, 6), 6);
+a.strictEqual(L.rowAhead([100, 200, 300, 50, 150], 1), 3); // wraps into the next column
+console.log('ok');
