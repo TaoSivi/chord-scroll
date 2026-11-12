@@ -93,7 +93,7 @@ function createFollower(steps, { hold = 3, margin = 0.1, tonal = 1.5 } = {}) {
   const key = s => s.pcs.join();
   const vocab = [...new Map(steps.map(s => [key(s), s.pcs])).values()];
   const heard = [];
-  let cand = -1, count = 0, heardCand = '', heardCount = 0;
+  let cand = -1, count = 0, heardCand = '', heardCount = 0, slow = null;
   const move = i => {
     f.index = Math.max(0, Math.min(steps.length - 1, i));
     count = 0; cand = -1;
@@ -115,7 +115,6 @@ function createFollower(steps, { hold = 3, margin = 0.1, tonal = 1.5 } = {}) {
       const mean = raw.reduce((a, b) => a + b, 0) / 12;
       const chroma = steps.length && mean && Math.max(...raw) / mean >= tonal ? clean(raw) : null;
       if (!chroma) { count = 0; heardCount = 0; return f.index; }
-      const ranked = vocab.map(p => [score(chroma, p), p.join()]).sort((a, b) => b[0] - a[0]);
 
       let best = -1, bestScore = score(chroma, steps[f.index].pcs) + margin;
       for (const i of [f.index + 1, f.index + 2, ...(steps[f.index].alts || [])]) {
@@ -132,11 +131,15 @@ function createFollower(steps, { hold = 3, margin = 0.1, tonal = 1.5 } = {}) {
         move(best);
       }
 
-      // slower than the local layer on purpose, so it reacts after the local move
+      // Averaged over about a second: a strummed chord rings on while sung notes keep moving,
+      // so the average keeps the chord and loses the melody. Also makes this layer react after
+      // the local move.
+      slow = slow ? slow.map((v, i) => v * 0.7 + chroma[i] * 0.3) : chroma;
+      const ranked = vocab.map(p => [score(slow, p), p.join()]).sort((a, b) => b[0] - a[0]);
       const name = ranked.length > 1 && ranked[0][0] - ranked[1][0] < 0.08 ? '' : ranked[0][1];
       heardCount = name && name === heardCand ? heardCount + 1 : 1;
       heardCand = name;
-      if (name && heardCount === hold + 2 && heard[heard.length - 1] !== name) {
+      if (name && heardCount === hold && heard[heard.length - 1] !== name) {
         heard.push(name);
         findPlace();
       }
