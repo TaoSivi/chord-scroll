@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Chord Scroll
 // @namespace    chord-scroll
-// @version      0.3.0
+// @version      0.4.0
 // @description  ຟັງສຽງກີຕ້າ ແລ້ວເລື່ອນໜ້າຄອດໃນ dochord.com ເອງ
 // @match        *://*.dochord.com/*
 // @grant        none
@@ -81,34 +81,65 @@ function clean(chroma) {
   return top[2] > top[0] * 0.1 ? v.map(x => Math.min(x / top[2], 1)) : null;
 }
 
-// Only asks "does the sound fit one of the next two chords better than the current one?"
+// Two layers:
+// 1. Local: "does the sound fit one of the next two chords (or a repeat/skip target) better
+//    than the current one?" Cheap and robust, it only has to tell a few chords apart.
+// 2. Find-my-place: names the chord being played out of the song's own chords, remembers the
+//    last three, and when that run is not where we are but does occur in the song, goes there.
+//    This is what handles starting in the middle of the song.
 // `tonal`: strongest pitch class vs the average. Noise and silence are flat (about 1), a chord
 // is not, so this gate needs no volume calibration.
 function createFollower(steps, { hold = 3, margin = 0.1, tonal = 1.5 } = {}) {
-  let cand = -1, count = 0;
+  const key = s => s.pcs.join();
+  const vocab = [...new Map(steps.map(s => [key(s), s.pcs])).values()];
+  const heard = [];
+  let cand = -1, count = 0, heardCand = '', heardCount = 0;
+  const move = i => {
+    f.index = Math.max(0, Math.min(steps.length - 1, i));
+    count = 0; cand = -1;
+  };
+  function findPlace() {
+    if (heard.length < 3) return;
+    const run = heard.slice(-3).join('|');
+    const endsAt = k => k >= 2 && [steps[k - 2], steps[k - 1], steps[k]].map(key).join('|') === run;
+    if (endsAt(f.index)) return;
+    // the same chords often occur in several verses and sound cannot tell them apart:
+    // take the next occurrence after where we are, else the last one before
+    const ks = steps.map((_, k) => k).filter(endsAt);
+    const k = ks.find(k => k > f.index) ?? ks[ks.length - 1];
+    if (k != null) f.jump(k);
+  }
   const f = {
     index: 0,
     feed(raw) {
       const mean = raw.reduce((a, b) => a + b, 0) / 12;
-      if (!steps.length || !mean || Math.max(...raw) / mean < tonal) { count = 0; return f.index; }
-      const chroma = clean(raw);
-      if (!chroma) { count = 0; return f.index; }
-      let best = -1, bestScore = score(chroma, steps[f.index].pcs) + margin;
+      const chroma = steps.length && mean && Math.max(...raw) / mean >= tonal ? clean(raw) : null;
+      if (!chroma) { count = 0; heardCount = 0; return f.index; }
+      const ranked = vocab.map(p => [score(chroma, p), p.join()]).sort((a, b) => b[0] - a[0]);
+
+      // a candidate must beat the current chord and be about the best fit of all the song's chords
+      let best = -1, bestScore = Math.max(score(chroma, steps[f.index].pcs) + margin, ranked[0][0] - 0.05);
       for (const i of [f.index + 1, f.index + 2, ...(steps[f.index].alts || [])]) {
         if (!steps[i]) continue;
         const s = score(chroma, steps[i].pcs);
         if (s > bestScore) { bestScore = s; best = i; }
       }
-      if (best < 0) { count = 0; cand = -1; return f.index; }
-      count = best === cand ? count + 1 : 1;
+      count = best >= 0 && best === cand ? count + 1 : best >= 0 ? 1 : 0;
       cand = best;
-      if (count >= hold) f.jump(best);
+      if (best >= 0 && count >= hold) move(best);
+
+      // slower than the local layer on purpose, so it reacts after the local move
+      const name = ranked.length > 1 && ranked[0][0] - ranked[1][0] < 0.08 ? '' : ranked[0][1];
+      heardCount = name && name === heardCand ? heardCount + 1 : 1;
+      heardCand = name;
+      if (name && heardCount === hold + 2 && heard[heard.length - 1] !== name) {
+        heard.push(name);
+        findPlace();
+      }
       return f.index;
     },
-    jump(i) {
-      f.index = Math.max(0, Math.min(steps.length - 1, i));
-      count = 0; cand = -1;
-    },
+    // a tap, or a find-my-place jump: what was heard before no longer says where we are
+    jump(i) { move(i); heard.length = 0; },
   };
   return f;
 }

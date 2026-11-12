@@ -63,6 +63,18 @@ play(h, Am, C, Dm); a.strictEqual(h.index, 3);      // ...then the verse
 h = L.createFollower(song());
 play(h, Am, C, Dm, Am); a.strictEqual(h.index, 4);  // intro once, then the verse
 
+// find-my-place: verse C G Am F twice, then a chorus Dm G E Am
+const long = () => L.buildSteps(['C', 'G', 'Am', 'F', 'C', 'G', 'Am', 'F', 'Dm', 'G', 'E', 'Am'], 0);
+const G = pc(7, 11, 2), E = pc(4, 8, 11);
+const strum = (fl, ...chords) => chords.forEach(c => { for (let i = 0; i < 6; i++) fl.feed(c); });
+h = L.createFollower(long());
+strum(h, Dm, G, E); a.strictEqual(h.index, 10);     // started at the chorus: found after 3 chords
+h = L.createFollower(long());
+strum(h, C, G, Am, F, C, G, Am, F, Dm, G, E, Am);
+a.strictEqual(h.index, 11);                         // playing straight through never jumps away
+h = L.createFollower(long());
+h.jump(4); strum(h, C, G, Am); a.strictEqual(h.index, 6); // tapped verse 2: stays in verse 2
+
 const tops = [10, 10, 10, 10, 40, 80, 120];
 a.strictEqual(L.rowAhead(tops, 0), 5);                 // two rows below the intro row
 a.strictEqual(L.rowAhead(tops, 5), 6);                 // only one row left -> last chord
