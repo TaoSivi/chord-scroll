@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Chord Scroll
 // @namespace    chord-scroll
-// @version      0.4.0
+// @version      0.5.0
 // @description  ຟັງສຽງກີຕ້າ ແລ້ວເລື່ອນໜ້າຄອດໃນ dochord.com ເອງ
 // @match        *://*.dochord.com/*
 // @grant        none
@@ -89,7 +89,8 @@ function clean(chroma) {
 //    This is what handles starting in the middle of the song.
 // `tonal`: strongest pitch class vs the average. Noise and silence are flat (about 1), a chord
 // is not, so this gate needs no volume calibration.
-function createFollower(steps, { hold = 3, margin = 0.1, tonal = 1.5 } = {}) {
+// `prefer(k)`: true for steps the player is likely at (the page passes "is on screen").
+function createFollower(steps, { hold = 3, margin = 0.1, tonal = 1.5, prefer = () => false } = {}) {
   const key = s => s.pcs.join();
   const vocab = [...new Map(steps.map(s => [key(s), s.pcs])).values()];
   const heard = [];
@@ -104,10 +105,11 @@ function createFollower(steps, { hold = 3, margin = 0.1, tonal = 1.5 } = {}) {
     if (heard.length < 3 || heard[heard.length - 1] === key(steps[f.index])) return;
     const run = heard.slice(-3).join('|');
     const endsAt = k => k >= 2 && [steps[k - 2], steps[k - 1], steps[k]].map(key).join('|') === run;
-    // the same chords often occur in several verses and sound cannot tell them apart:
-    // take the next occurrence after where we are, else the last one before
+    // the same chords often occur in several verses and sound cannot tell them apart: take
+    // the occurrence the player is looking at, else the next one after where we are, else
+    // the last one before
     const ks = steps.map((_, k) => k).filter(endsAt);
-    const k = ks.find(k => k > f.index) ?? ks[ks.length - 1];
+    const k = ks.find(prefer) ?? ks.find(k => k > f.index) ?? ks[ks.length - 1];
     if (k != null) f.jump(k);
   }
   const f = {
@@ -174,6 +176,7 @@ if (typeof document !== 'undefined' && document.querySelector('span.c_chord')) (
     set capo(v) { try { localStorage.setItem('chordScrollCapo', v); } catch {} },
   };
   let capo = store.capo, spans = [], steps = [], follower = createFollower([]), run = null;
+  let ourScrollUntil = 0, scrollTimer;
 
   const ui = document.createElement('div');
   ui.id = 'cs-ui';
@@ -210,17 +213,22 @@ if (typeof document !== 'undefined' && document.querySelector('span.c_chord')) (
         intro: /intro/i.test(p.textContent),
       })));
     const i = follower.index;
-    follower = createFollower(steps);
+    follower = createFollower(steps, { prefer: k => inView(spans[steps[k].first]) });
     follower.jump(i);
     capoLabel.textContent = 'Capo ' + capo;
   }
 
   const pageTop = el => Math.round(el.getBoundingClientRect().top + scrollY);
 
+  function inView(el) {
+    const r = el.getBoundingClientRect();
+    return r.top >= 0 && r.bottom <= innerHeight;
+  }
+
   // on screen and not covered by a sticky header, ad or our own controls
   function seen(el) {
     const r = el.getBoundingClientRect();
-    if (r.top < 0 || r.bottom > innerHeight) return false;
+    if (!inView(el)) return false;
     const hit = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2);
     return !!hit && (el.contains(hit) || hit.contains(el));
   }
@@ -233,7 +241,21 @@ if (typeof document !== 'undefined' && document.querySelector('span.c_chord')) (
     cur.classList.add('cs-current');
     // scroll once the row two below the current one can no longer be read
     const look = spans[rowAhead(spans.map(pageTop), first)];
-    if (!seen(cur) || !seen(look)) scrollTo({ top: pageTop(cur) - 0.15 * innerHeight, behavior: 'smooth' });
+    if (!seen(cur) || !seen(look)) {
+      ourScrollUntil = Date.now() + 1500;
+      scrollTo({ top: pageTop(cur) - 0.15 * innerHeight, behavior: 'smooth' });
+    }
+  }
+
+  // The player scrolls to where they are about to play. If that took the current chord off
+  // screen, continue from the first chord that is on screen.
+  function syncToScreen() {
+    const cur = spans[steps[follower.index]?.first];
+    if (cur && inView(cur)) return;
+    const i = steps.findIndex(s => inView(spans[s.first]));
+    if (i < 0) return;
+    follower.jump(i);
+    show();
   }
 
   function stop() {
@@ -281,6 +303,7 @@ if (typeof document !== 'undefined' && document.querySelector('span.c_chord')) (
     navigator.wakeLock?.request('screen').then(l => run ? run.lock = l : l.release(), () => {});
     go.textContent = '■ ຢຸດ';
     go.setAttribute('aria-pressed', 'true');
+    syncToScreen();
     show();
   }
 
@@ -303,6 +326,11 @@ if (typeof document !== 'undefined' && document.querySelector('span.c_chord')) (
   // (observing only the chord block: our own UI lives in body and would retrigger it)
   const block = document.querySelector('span.c_chord').closest('.single-entry-content-cord, blockquote');
   if (block) new MutationObserver(readChords).observe(block, { subtree: true, childList: true, characterData: true });
+  addEventListener('scroll', () => {
+    if (Date.now() < ourScrollUntil) return; // our own smooth scroll, not the player
+    clearTimeout(scrollTimer);
+    scrollTimer = setTimeout(syncToScreen, 250);
+  }, { passive: true });
   addEventListener('pagehide', stop);
   readChords();
 })();

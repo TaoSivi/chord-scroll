@@ -75,6 +75,16 @@ a.strictEqual(h.index, 11);                         // playing straight through 
 h = L.createFollower(long());
 h.jump(4); strum(h, C, G, Am); a.strictEqual(h.index, 6); // tapped verse 2: stays in verse 2
 
+// two identical verses; the player has verse 2 on screen (steps 4-7) and plays Am F C? no:
+// plays G Am F, which ends at step 3 and at step 7. The screen decides.
+const twice = () => L.buildSteps(['C', 'G', 'Am', 'F', 'C', 'G', 'Am', 'F', 'Dm'], 0);
+h = L.createFollower(twice(), { prefer: k => k >= 4 && k <= 7 });
+h.jump(8); strum(h, G, Am, F); a.strictEqual(h.index, 7);  // on-screen verse wins
+h = L.createFollower(twice());
+h.jump(8); strum(h, G, Am, F); a.strictEqual(h.index, 7);  // no screen hint: last one before
+h = L.createFollower(twice(), { prefer: k => k <= 3 });
+h.jump(8); strum(h, G, Am, F); a.strictEqual(h.index, 3);  // verse 1 on screen: verse 1
+
 const tops = [10, 10, 10, 10, 40, 80, 120];
 a.strictEqual(L.rowAhead(tops, 0), 5);                 // two rows below the intro row
 a.strictEqual(L.rowAhead(tops, 5), 6);                 // only one row left -> last chord
