@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Chord Scroll
 // @namespace    chord-scroll
-// @version      0.1.2
+// @version      0.1.3
 // @description  ຟັງສຽງກີຕ້າ ແລ້ວເລື່ອນໜ້າຄອດໃນ dochord.com ເອງ
 // @match        *://*.dochord.com/*
 // @grant        none
@@ -120,7 +120,8 @@ if (typeof document !== 'undefined' && document.querySelector('span.c_chord')) (
     <button id="cs-go" aria-pressed="false">▶ ເລີ່ມ</button>
     <button id="cs-down" aria-label="ຫຼຸດ capo">−</button>
     <span id="cs-capo" aria-live="polite"></span>
-    <button id="cs-up" aria-label="ເພີ່ມ capo">+</button>`;
+    <button id="cs-up" aria-label="ເພີ່ມ capo">+</button>
+    <span id="cs-dbg" style="font:12px monospace;white-space:pre"></span>`;
   document.body.appendChild(ui);
   const go = ui.querySelector('#cs-go'), capoLabel = ui.querySelector('#cs-capo');
 
@@ -188,7 +189,12 @@ if (typeof document !== 'undefined' && document.querySelector('span.c_chord')) (
     run.timer = setInterval(() => {
       an.getFloatFrequencyData(buf);
       const before = follower.index;
-      if (follower.feed(chromaFromSpectrum(buf, ctx.sampleRate, an.fftSize)) !== before) show();
+      const chroma = chromaFromSpectrum(buf, ctx.sampleRate, an.fftSize);
+      // temporary readout for tuning: volume, then fit of current / next / next+1 chord
+      const fit = i => steps[i] ? spans[steps[i].first].textContent + ' ' + score(chroma, steps[i].pcs).toFixed(2) : '';
+      ui.querySelector('#cs-dbg').textContent = 'vol ' + chroma.reduce((a, b) => a + b, 0).toFixed(3) +
+        ' | ' + fit(before) + ' > ' + fit(before + 1) + ' > ' + fit(before + 2);
+      if (follower.feed(chroma) !== before) show();
     }, 100);
     // shortcut: wake lock is dropped if the tab is hidden and not re-requested; press start again
     navigator.wakeLock?.request('screen').then(l => run ? run.lock = l : l.release(), () => {});
