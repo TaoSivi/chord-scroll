@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Chord Scroll
 // @namespace    chord-scroll
-// @version      0.2.0
+// @version      0.3.0
 // @description  ຟັງສຽງກີຕ້າ ແລ້ວເລື່ອນໜ້າຄອດໃນ dochord.com ເອງ
 // @match        *://*.dochord.com/*
 // @grant        none
@@ -52,6 +52,23 @@ function buildSteps(names, capo) {
   return steps;
 }
 
+// Lets the follower move by ear where players really deviate from the page:
+// - a line marked "2 Times" / "x2" may be played again: its last chord can go back to its first;
+// - an intro may be skipped: its first chord can go straight to the first chord after it.
+// lineOf[i] is the line number of chord name i; lines[n] = { repeat, intro }.
+function linkJumps(steps, lineOf, lines) {
+  const line = s => lineOf[s.first];
+  lines.forEach((l, n) => {
+    const a = steps.findIndex(s => line(s) === n);
+    if (a < 0) return;
+    let b = a;
+    while (steps[b + 1] && line(steps[b + 1]) === n) b++;
+    if (l.repeat && b > a) steps[b].alts = [a];
+    if (l.intro && steps[b + 1]) steps[a].alts = [...(steps[a].alts || []), b + 1];
+  });
+  return steps;
+}
+
 // Makes the chroma independent of mic level and of one loud note:
 // - flat room noise adds the same to every pitch class, so the smallest value is removed;
 // - a chord sounds at least three pitch classes, so everything is scaled to the third
@@ -77,7 +94,8 @@ function createFollower(steps, { hold = 3, margin = 0.1, tonal = 1.5 } = {}) {
       const chroma = clean(raw);
       if (!chroma) { count = 0; return f.index; }
       let best = -1, bestScore = score(chroma, steps[f.index].pcs) + margin;
-      for (let i = f.index + 1; i <= f.index + 2 && i < steps.length; i++) {
+      for (const i of [f.index + 1, f.index + 2, ...(steps[f.index].alts || [])]) {
+        if (!steps[i]) continue;
         const s = score(chroma, steps[i].pcs);
         if (s > bestScore) { bestScore = s; best = i; }
       }
@@ -106,7 +124,7 @@ function rowAhead(tops, i, n = 2) {
 }
 
 if (typeof module !== 'undefined') {
-  module.exports = { chordPitchClasses, chromaFromSpectrum, score, buildSteps, createFollower, rowAhead, clean };
+  module.exports = { chordPitchClasses, chromaFromSpectrum, score, buildSteps, createFollower, rowAhead, clean, linkJumps };
 }
 
 // ---------- page ----------
@@ -143,7 +161,15 @@ if (typeof document !== 'undefined' && document.querySelector('span.c_chord')) (
   function readChords() {
     // the page can hold hidden duplicate chord blocks; only follow what is displayed
     spans = [...document.querySelectorAll('span.c_chord')].filter(s => s.offsetParent);
-    steps = buildSteps(spans.map(s => s.textContent), capo);
+    // on dochord each song line is one parent element; repeats are written like "( 2 Times )"
+    const parents = [...new Set(spans.map(s => s.parentElement))];
+    steps = linkJumps(
+      buildSteps(spans.map(s => s.textContent), capo),
+      spans.map(s => parents.indexOf(s.parentElement)),
+      parents.map(p => ({
+        repeat: /\d\s*(times|รอบ|ครั้ง)|[x×]\s*\d/i.test(p.textContent),
+        intro: /intro/i.test(p.textContent),
+      })));
     const i = follower.index;
     follower = createFollower(steps);
     follower.jump(i);

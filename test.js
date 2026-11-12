@@ -50,6 +50,19 @@ const solo = Array(12).fill(0); solo[5] = 1; solo[0] = 0.1; solo[9] = 0.05; // l
 for (let i = 0; i < 10; i++) g.feed(solo);
 a.strictEqual(g.index, 2);                    // singing without guitar does not move it to F
 
+// intro marked "2 Times" on line 0, verse on line 1
+const song = () => L.linkJumps(L.buildSteps(['F', 'Am', 'C', 'Dm', 'Am'], 0), [0, 0, 0, 1, 1],
+  [{ repeat: true, intro: true }, { repeat: false, intro: false }]);
+const play = (fl, ...chords) => chords.forEach(c => { for (let i = 0; i < 3; i++) fl.feed(c); });
+const F = pc(5, 9, 0), Am = pc(9, 0, 4), C = pc(0, 4, 7), Dm = pc(2, 5, 9);
+let h = L.createFollower(song());
+play(h, Dm); a.strictEqual(h.index, 3);             // intro skipped, straight into the verse
+h = L.createFollower(song());
+play(h, Am, C, F); a.strictEqual(h.index, 0);       // intro played again
+play(h, Am, C, Dm); a.strictEqual(h.index, 3);      // ...then the verse
+h = L.createFollower(song());
+play(h, Am, C, Dm, Am); a.strictEqual(h.index, 4);  // intro once, then the verse
+
 const tops = [10, 10, 10, 10, 40, 80, 120];
 a.strictEqual(L.rowAhead(tops, 0), 5);                 // two rows below the intro row
 a.strictEqual(L.rowAhead(tops, 5), 6);                 // only one row left -> last chord
