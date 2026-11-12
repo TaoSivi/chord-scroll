@@ -1,9 +1,9 @@
 // ==UserScript==
 // @name         Chord Scroll
 // @namespace    chord-scroll
-// @version      0.1.0
+// @version      0.1.1
 // @description  ຟັງສຽງກີຕ້າ ແລ້ວເລື່ອນໜ້າຄອດໃນ dochord.com ເອງ
-// @match        https://www.dochord.com/*
+// @match        *://*.dochord.com/*
 // @grant        none
 // @downloadURL  https://raw.githubusercontent.com/TaoSivi/chord-scroll/main/chord-scroll.user.js
 // @updateURL    https://raw.githubusercontent.com/TaoSivi/chord-scroll/main/chord-scroll.user.js
