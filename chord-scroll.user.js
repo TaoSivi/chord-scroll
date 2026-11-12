@@ -117,8 +117,7 @@ function createFollower(steps, { hold = 3, margin = 0.1, tonal = 1.5 } = {}) {
       if (!chroma) { count = 0; heardCount = 0; return f.index; }
       const ranked = vocab.map(p => [score(chroma, p), p.join()]).sort((a, b) => b[0] - a[0]);
 
-      // a candidate must beat the current chord and be about the best fit of all the song's chords
-      let best = -1, bestScore = Math.max(score(chroma, steps[f.index].pcs) + margin, ranked[0][0] - 0.05);
+      let best = -1, bestScore = score(chroma, steps[f.index].pcs) + margin;
       for (const i of [f.index + 1, f.index + 2, ...(steps[f.index].alts || [])]) {
         if (!steps[i]) continue;
         const s = score(chroma, steps[i].pcs);
@@ -126,7 +125,12 @@ function createFollower(steps, { hold = 3, margin = 0.1, tonal = 1.5 } = {}) {
       }
       count = best >= 0 && best === cand ? count + 1 : best >= 0 ? 1 : 0;
       cand = best;
-      if (best >= 0 && count >= hold) move(best);
+      if (best >= 0 && count >= hold) {
+        // a repeat or intro skip breaks the run of chords, so what was heard before it must
+        // not be matched against the page
+        if (best < f.index || best > f.index + 2) heard.length = 0;
+        move(best);
+      }
 
       // slower than the local layer on purpose, so it reacts after the local move
       const name = ranked.length > 1 && ranked[0][0] - ranked[1][0] < 0.08 ? '' : ranked[0][1];
