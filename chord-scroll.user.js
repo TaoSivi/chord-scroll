@@ -94,7 +94,7 @@ function createFollower(steps, { hold = 3, margin = 0.1, tonal = 1.5, prefer = (
   const key = s => s.pcs.join();
   const vocab = [...new Map(steps.map(s => [key(s), s.pcs])).values()];
   const heard = [];
-  let cand = -1, count = 0, heardCand = '', heardCount = 0, slow = null;
+  let cand = -1, count = 0, heardCand = '', heardCount = 0, slow = null, quiet = 0;
   const move = i => {
     f.index = Math.max(0, Math.min(steps.length - 1, i));
     count = 0; cand = -1;
@@ -117,7 +117,14 @@ function createFollower(steps, { hold = 3, margin = 0.1, tonal = 1.5, prefer = (
     feed(raw) {
       const mean = raw.reduce((a, b) => a + b, 0) / 12;
       const chroma = steps.length && mean && Math.max(...raw) / mean >= tonal ? clean(raw) : null;
-      if (!chroma) { count = 0; heardCount = 0; return f.index; }
+      if (!chroma) {
+        count = 0; heardCount = 0;
+        // after about two seconds without a chord the player has stopped; what they played
+        // before must not be joined to what they play next
+        if (++quiet === 20) { heard.length = 0; slow = null; }
+        return f.index;
+      }
+      quiet = 0;
 
       let best = -1, bestScore = score(chroma, steps[f.index].pcs) + margin;
       for (const i of [f.index + 1, f.index + 2, ...(steps[f.index].alts || [])]) {
@@ -176,7 +183,7 @@ if (typeof document !== 'undefined' && document.querySelector('span.c_chord')) (
     set capo(v) { try { localStorage.setItem('chordScrollCapo', v); } catch {} },
   };
   let capo = store.capo, spans = [], steps = [], follower = createFollower([]), run = null;
-  let ourScrollUntil = 0, scrollTimer;
+  let ourScrollUntil = 0, userInputUntil = 0, scrollTimer;
 
   const ui = document.createElement('div');
   ui.id = 'cs-ui';
@@ -251,10 +258,9 @@ if (typeof document !== 'undefined' && document.querySelector('span.c_chord')) (
   // screen, continue from the first chord that is on screen.
   function syncToScreen() {
     const cur = spans[steps[follower.index]?.first];
-    if (cur && inView(cur)) return;
-    const i = steps.findIndex(s => inView(spans[s.first]));
+    const i = cur && inView(cur) ? follower.index : steps.findIndex(s => inView(spans[s.first]));
     if (i < 0) return;
-    follower.jump(i);
+    follower.jump(i); // also forgets the chords heard before the player moved
     show();
   }
 
@@ -326,8 +332,15 @@ if (typeof document !== 'undefined' && document.querySelector('span.c_chord')) (
   // (observing only the chord block: our own UI lives in body and would retrigger it)
   const block = document.querySelector('span.c_chord').closest('.single-entry-content-cord, blockquote');
   if (block) new MutationObserver(readChords).observe(block, { subtree: true, childList: true, characterData: true });
+  // A scroll is the player's only if their hand just did something. A time window after our
+  // own scrollTo is not enough: a slow smooth scroll outlasts it and we would chase ourselves.
+  for (const type of ['wheel', 'touchmove', 'keydown', 'pointerdown']) {
+    addEventListener(type, e => {
+      if (!ui.contains(e.target)) userInputUntil = Date.now() + 1500;
+    }, { passive: true, capture: true });
+  }
   addEventListener('scroll', () => {
-    if (Date.now() < ourScrollUntil) return; // our own smooth scroll, not the player
+    if (Date.now() > userInputUntil || Date.now() < ourScrollUntil) return;
     clearTimeout(scrollTimer);
     scrollTimer = setTimeout(syncToScreen, 250);
   }, { passive: true });

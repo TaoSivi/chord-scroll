@@ -85,6 +85,13 @@ h.jump(8); strum(h, G, Am, F); a.strictEqual(h.index, 7);  // no screen hint: la
 h = L.createFollower(twice(), { prefer: k => k <= 3 });
 h.jump(8); strum(h, G, Am, F); a.strictEqual(h.index, 3);  // verse 1 on screen: verse 1
 
+// a pause splits the memory: Dm G, two seconds of silence, then E must not be read as "Dm G E"
+h = L.createFollower(long());
+strum(h, Dm, G);
+for (let i = 0; i < 25; i++) h.feed(Array(12).fill(0));
+const before = h.index;
+strum(h, E); a.strictEqual(h.index, before);
+
 const tops = [10, 10, 10, 10, 40, 80, 120];
 a.strictEqual(L.rowAhead(tops, 0), 5);                 // two rows below the intro row
 a.strictEqual(L.rowAhead(tops, 5), 6);                 // only one row left -> last chord
