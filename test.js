@@ -37,6 +37,19 @@ for (let i = 0; i < 5; i++) f.feed(pc(0, 4, 7));
 a.strictEqual(f.index, 3);                    // never past the end / backwards
 f.jump(0); a.strictEqual(f.index, 0);
 
+// the three cases found by feeding synthetic chords through the real page:
+const g = L.createFollower(steps);
+for (let i = 0; i < 3; i++) g.feed(pc(7, 11, 2).map(v => v * 0.0001));
+a.strictEqual(g.index, 1);                    // a quiet mic still advances
+for (let i = 0; i < 10; i++) g.feed(Array(12).fill(0.3).map((v, k) => v + 0.02 * (k % 3)));
+a.strictEqual(g.index, 1);                    // flat room noise does not
+const sung = pc(9, 0, 4); sung[7] = 5;        // Am strummed, loud G sung over it (G is in the current chord)
+for (let i = 0; i < 3; i++) g.feed(sung);
+a.strictEqual(g.index, 2);                    // one loud note cannot hold it back
+const solo = Array(12).fill(0); solo[5] = 1; solo[0] = 0.1; solo[9] = 0.05; // lone sung F with overtones
+for (let i = 0; i < 10; i++) g.feed(solo);
+a.strictEqual(g.index, 2);                    // singing without guitar does not move it to F
+
 const tops = [10, 10, 10, 10, 40, 80, 120];
 a.strictEqual(L.rowAhead(tops, 0), 5);                 // two rows below the intro row
 a.strictEqual(L.rowAhead(tops, 5), 6);                 // only one row left -> last chord

@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Chord Scroll
 // @namespace    chord-scroll
-// @version      0.1.3
+// @version      0.2.0
 // @description  ຟັງສຽງກີຕ້າ ແລ້ວເລື່ອນໜ້າຄອດໃນ dochord.com ເອງ
 // @match        *://*.dochord.com/*
 // @grant        none
@@ -52,15 +52,30 @@ function buildSteps(names, capo) {
   return steps;
 }
 
+// Makes the chroma independent of mic level and of one loud note:
+// - flat room noise adds the same to every pitch class, so the smallest value is removed;
+// - a chord sounds at least three pitch classes, so everything is scaled to the third
+//   strongest and clipped at 1. A sung melody note then counts as one note, however loud.
+// Returns null when fewer than three pitch classes stand out (a lone voice, a single string).
+function clean(chroma) {
+  const floor = Math.min(...chroma);
+  const v = chroma.map(x => x - floor);
+  const top = [...v].sort((a, b) => b - a);
+  return top[2] > top[0] * 0.1 ? v.map(x => Math.min(x / top[2], 1)) : null;
+}
+
 // Only asks "does the sound fit one of the next two chords better than the current one?"
-// shortcut: minEnergy/margin are untuned guesses, calibrate against a real mic + guitar.
-function createFollower(steps, { hold = 3, margin = 0.1, minEnergy = 0.01 } = {}) {
+// `tonal`: strongest pitch class vs the average. Noise and silence are flat (about 1), a chord
+// is not, so this gate needs no volume calibration.
+function createFollower(steps, { hold = 3, margin = 0.1, tonal = 1.5 } = {}) {
   let cand = -1, count = 0;
   const f = {
     index: 0,
-    feed(chroma) {
-      const total = chroma.reduce((a, b) => a + b, 0);
-      if (!steps.length || total < minEnergy) { count = 0; return f.index; }
+    feed(raw) {
+      const mean = raw.reduce((a, b) => a + b, 0) / 12;
+      if (!steps.length || !mean || Math.max(...raw) / mean < tonal) { count = 0; return f.index; }
+      const chroma = clean(raw);
+      if (!chroma) { count = 0; return f.index; }
       let best = -1, bestScore = score(chroma, steps[f.index].pcs) + margin;
       for (let i = f.index + 1; i <= f.index + 2 && i < steps.length; i++) {
         const s = score(chroma, steps[i].pcs);
@@ -91,7 +106,7 @@ function rowAhead(tops, i, n = 2) {
 }
 
 if (typeof module !== 'undefined') {
-  module.exports = { chordPitchClasses, chromaFromSpectrum, score, buildSteps, createFollower, rowAhead };
+  module.exports = { chordPitchClasses, chromaFromSpectrum, score, buildSteps, createFollower, rowAhead, clean };
 }
 
 // ---------- page ----------
@@ -191,7 +206,8 @@ if (typeof document !== 'undefined' && document.querySelector('span.c_chord')) (
       const before = follower.index;
       const chroma = chromaFromSpectrum(buf, ctx.sampleRate, an.fftSize);
       // temporary readout for tuning: volume, then fit of current / next / next+1 chord
-      const fit = i => steps[i] ? spans[steps[i].first].textContent + ' ' + score(chroma, steps[i].pcs).toFixed(2) : '';
+      const cl = clean(chroma) || chroma;
+      const fit = i => steps[i] ? spans[steps[i].first].textContent + ' ' + score(cl, steps[i].pcs).toFixed(2) : '';
       ui.querySelector('#cs-dbg').textContent = 'vol ' + chroma.reduce((a, b) => a + b, 0).toFixed(3) +
         ' | ' + fit(before) + ' > ' + fit(before + 1) + ' > ' + fit(before + 2);
       if (follower.feed(chroma) !== before) show();
