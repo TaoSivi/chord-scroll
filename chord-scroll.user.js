@@ -99,10 +99,11 @@ function createFollower(steps, { hold = 3, margin = 0.1, tonal = 1.5 } = {}) {
     count = 0; cand = -1;
   };
   function findPlace() {
-    if (heard.length < 3) return;
+    // only when the chord just heard is not the one we are on: while the page still explains
+    // the sound, a missed chord in the memory must not send us to a look-alike passage
+    if (heard.length < 3 || heard[heard.length - 1] === key(steps[f.index])) return;
     const run = heard.slice(-3).join('|');
     const endsAt = k => k >= 2 && [steps[k - 2], steps[k - 1], steps[k]].map(key).join('|') === run;
-    if (endsAt(f.index)) return;
     // the same chords often occur in several verses and sound cannot tell them apart:
     // take the next occurrence after where we are, else the last one before
     const ks = steps.map((_, k) => k).filter(endsAt);
