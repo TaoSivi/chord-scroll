@@ -250,6 +250,7 @@ if (typeof document !== 'undefined' && document.querySelector('span.c_chord')) (
     const look = spans[rowAhead(spans.map(pageTop), first)];
     if (!seen(cur) || !seen(look)) {
       ourScrollUntil = Date.now() + 1500;
+      userInputUntil = 0;
       scrollTo({ top: pageTop(cur) - 0.15 * innerHeight, behavior: 'smooth' });
     }
   }
@@ -341,6 +342,7 @@ if (typeof document !== 'undefined' && document.querySelector('span.c_chord')) (
   }
   addEventListener('scroll', () => {
     if (Date.now() > userInputUntil || Date.now() < ourScrollUntil) return;
+    userInputUntil = Date.now() + 1500; // a flick keeps gliding long after the finger lifts
     clearTimeout(scrollTimer);
     scrollTimer = setTimeout(syncToScreen, 250);
   }, { passive: true });
