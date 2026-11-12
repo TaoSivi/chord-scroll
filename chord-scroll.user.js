@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Chord Scroll
 // @namespace    chord-scroll
-// @version      0.1.1
+// @version      0.1.2
 // @description  ຟັງສຽງກີຕ້າ ແລ້ວເລື່ອນໜ້າຄອດໃນ dochord.com ເອງ
 // @match        *://*.dochord.com/*
 // @grant        none
@@ -114,7 +114,8 @@ if (typeof document !== 'undefined' && document.querySelector('span.c_chord')) (
       #cs-ui #cs-go{padding:0 14px;background:#0a7d32}
       #cs-ui #cs-go[aria-pressed=true]{background:#b3261e}
       span.c_chord{cursor:pointer}
-      span.c_chord.cs-current{background:#ffd60a;color:#000;border-radius:4px;outline:2px solid #ffd60a}
+      /* the chord box extends down over the lyric line, so only paint its top strip */
+      span.c_chord.cs-current{background:linear-gradient(#ffd60a,#ffd60a) top/100% 1.3em no-repeat;color:#000;border-radius:4px}
     </style>
     <button id="cs-go" aria-pressed="false">▶ ເລີ່ມ</button>
     <button id="cs-down" aria-label="ຫຼຸດ capo">−</button>
