@@ -337,7 +337,7 @@ if (typeof document !== 'undefined' && document.querySelector('span.c_chord')) (
   // own scrollTo is not enough: a slow smooth scroll outlasts it and we would chase ourselves.
   for (const type of ['wheel', 'touchmove', 'keydown', 'pointerdown']) {
     addEventListener(type, e => {
-      if (!ui.contains(e.target)) userInputUntil = Date.now() + 1500;
+      if (!(e.target instanceof Node && ui.contains(e.target))) userInputUntil = Date.now() + 1500;
     }, { passive: true, capture: true });
   }
   addEventListener('scroll', () => {
