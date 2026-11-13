@@ -92,6 +92,20 @@ for (let i = 0; i < 25; i++) h.feed(Array(12).fill(0));
 const before = h.index;
 strum(h, E); a.strictEqual(h.index, before);
 
+// voice only, C G Am F: a sung melody moves it, slowly
+const one = p => pc(p);
+const sing = (fl, secs, ...notes) => { for (let i = 0; i < secs * 10; i++) fl.feed(one(notes[i % notes.length])); };
+a.strictEqual(L.loneNote(one(4)), 4);
+a.strictEqual(L.loneNote([1.75, 0, 0, 0, 0.2, 0, 0, 0.5, 0, 0, 0.14, 0]), 0); // a note with its overtones
+a.strictEqual(L.loneNote(sung), -1);                // loud voice over a chord is not a lone note
+a.strictEqual(L.loneNote(pc(0, 4, 7)), -1);
+h = L.createFollower(L.buildSteps(['C', 'G', 'Am', 'F'], 0));
+sing(h, 3, 4, 7, 0); a.strictEqual(h.index, 0);     // notes of C: stays
+sing(h, 0.4, 2); a.strictEqual(h.index, 0);         // a short passing note: stays
+sing(h, 3, 2, 11); a.strictEqual(h.index, 1);       // D and B: on to G
+sing(h, 3, 9, 0); a.strictEqual(h.index, 2);        // A and C: on to Am
+strum(h, F); a.strictEqual(h.index, 3);             // the guitar comes in and takes over
+
 const tops = [10, 10, 10, 10, 40, 80, 120];
 a.strictEqual(L.rowAhead(tops, 0), 5);                 // two rows below the intro row
 a.strictEqual(L.rowAhead(tops, 5), 6);                 // only one row left -> last chord

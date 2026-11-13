@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         Chord Scroll
 // @namespace    chord-scroll
-// @version      0.5.0
-// @description  ຟັງສຽງກີຕ້າ ແລ້ວເລື່ອນໜ້າຄອດໃນ dochord.com ເອງ
+// @version      0.6.0
+// @description  ຟັງສຽງກີຕ້າ ຫຼື ສຽງຮ້ອງ ແລ້ວເລື່ອນໜ້າຄອດໃນ dochord.com ເອງ
 // @match        *://*.dochord.com/*
 // @grant        none
 // @downloadURL  https://raw.githubusercontent.com/TaoSivi/chord-scroll/main/chord-scroll.user.js
@@ -81,12 +81,24 @@ function clean(chroma) {
   return top[2] > top[0] * 0.1 ? v.map(x => Math.min(x / top[2], 1)) : null;
 }
 
-// Two layers:
+// A lone sung or picked note: one pitch class towers over the rest and at most two others
+// (its own overtones, a fifth and a third up) show. Returns that pitch class, or -1.
+function loneNote(chroma) {
+  const floor = Math.min(...chroma);
+  const v = chroma.map(x => x - floor);
+  const top = [...v].sort((a, b) => b - a);
+  return top[0] > 0 && top[1] < top[0] * 0.5 && top[3] < top[0] * 0.1 ? v.indexOf(top[0]) : -1;
+}
+
+// Three layers:
 // 1. Local: "does the sound fit one of the next two chords (or a repeat/skip target) better
 //    than the current one?" Cheap and robust, it only has to tell a few chords apart.
 // 2. Find-my-place: names the chord being played out of the song's own chords, remembers the
 //    last three, and when that run is not where we are but does occur in the song, goes there.
 //    This is what handles starting in the middle of the song.
+// 3. Voice only: after two seconds without a chord, lone notes are collected into a tally of
+//    what was sung lately, and the tally is compared like a chord. A melody mostly sits on
+//    chord notes, so this follows roughly; it cannot be as sure as hearing the guitar.
 // `tonal`: strongest pitch class vs the average. Noise and silence are flat (about 1), a chord
 // is not, so this gate needs no volume calibration.
 // `prefer(k)`: true for steps the player is likely at (the page passes "is on screen").
@@ -94,11 +106,28 @@ function createFollower(steps, { hold = 3, margin = 0.1, tonal = 1.5, prefer = (
   const key = s => s.pcs.join();
   const vocab = [...new Map(steps.map(s => [key(s), s.pcs])).values()];
   const heard = [];
-  let cand = -1, count = 0, heardCand = '', heardCount = 0, slow = null, quiet = 0;
+  const sung = Array(12).fill(0);
+  let cand = -1, count = 0, heardCand = '', heardCount = 0, slow = null, quiet = 20;
   const move = i => {
     f.index = Math.max(0, Math.min(steps.length - 1, i));
-    count = 0; cand = -1;
+    count = 0; cand = -1; sung.fill(0);
   };
+  // the step among next, next+1 and repeat/skip targets that fits better than the current one
+  function pick(chroma, m, hold) {
+    let best = -1, bestScore = score(chroma, steps[f.index].pcs) + m;
+    for (const i of [f.index + 1, f.index + 2, ...(steps[f.index].alts || [])]) {
+      if (!steps[i]) continue;
+      const s = score(chroma, steps[i].pcs);
+      if (s > bestScore) { bestScore = s; best = i; }
+    }
+    count = best >= 0 && best === cand ? count + 1 : best >= 0 ? 1 : 0;
+    cand = best;
+    if (best < 0 || count < hold) return;
+    // a repeat or intro skip breaks the run of chords, so what was heard before it must
+    // not be matched against the page
+    if (best < f.index || best > f.index + 2) heard.length = 0;
+    move(best);
+  }
   function findPlace() {
     // only when the chord just heard is not the one we are on: while the page still explains
     // the sound, a missed chord in the memory must not send us to a look-alike passage
@@ -116,30 +145,24 @@ function createFollower(steps, { hold = 3, margin = 0.1, tonal = 1.5, prefer = (
     index: 0,
     feed(raw) {
       const mean = raw.reduce((a, b) => a + b, 0) / 12;
-      const chroma = steps.length && mean && Math.max(...raw) / mean >= tonal ? clean(raw) : null;
-      if (!chroma) {
-        count = 0; heardCount = 0;
-        // after about two seconds without a chord the player has stopped; what they played
-        // before must not be joined to what they play next
-        if (++quiet === 20) { heard.length = 0; slow = null; }
+      const ok = steps.length && mean && Math.max(...raw) / mean >= tonal;
+      const note = ok ? loneNote(raw) : -1;
+      const chroma = ok ? clean(raw) : null;
+      if (chroma && note < 0) { quiet = 0; sung.fill(0); }
+      // after about two seconds without a chord the player has stopped; what they played
+      // before must not be joined to what they play next
+      else if (++quiet === 20) { heard.length = 0; slow = null; }
+      if (note >= 0 && quiet >= 20) {
+        heardCount = 0;
+        for (let i = 0; i < 12; i++) sung[i] *= 0.95; // forgets in about two seconds
+        sung[note]++;
+        // about a second of singing on this chord before it may move again
+        if (sung.reduce((a, b) => a + b) >= 8) pick(sung, 0.2, 5);
         return f.index;
       }
-      quiet = 0;
+      if (!chroma) { count = 0; heardCount = 0; return f.index; }
 
-      let best = -1, bestScore = score(chroma, steps[f.index].pcs) + margin;
-      for (const i of [f.index + 1, f.index + 2, ...(steps[f.index].alts || [])]) {
-        if (!steps[i]) continue;
-        const s = score(chroma, steps[i].pcs);
-        if (s > bestScore) { bestScore = s; best = i; }
-      }
-      count = best >= 0 && best === cand ? count + 1 : best >= 0 ? 1 : 0;
-      cand = best;
-      if (best >= 0 && count >= hold) {
-        // a repeat or intro skip breaks the run of chords, so what was heard before it must
-        // not be matched against the page
-        if (best < f.index || best > f.index + 2) heard.length = 0;
-        move(best);
-      }
+      pick(chroma, margin, hold);
 
       // Averaged over about a second: a strummed chord rings on while sung notes keep moving,
       // so the average keeps the chord and loses the melody. Also makes this layer react after
@@ -172,7 +195,7 @@ function rowAhead(tops, i, n = 2) {
 }
 
 if (typeof module !== 'undefined') {
-  module.exports = { chordPitchClasses, chromaFromSpectrum, score, buildSteps, createFollower, rowAhead, clean, linkJumps };
+  module.exports = { loneNote, chordPitchClasses, chromaFromSpectrum, score, buildSteps, createFollower, rowAhead, clean, linkJumps };
 }
 
 // ---------- page ----------
@@ -189,7 +212,8 @@ if (typeof document !== 'undefined' && document.querySelector('span.c_chord')) (
   ui.id = 'cs-ui';
   ui.innerHTML = `
     <style>
-      #cs-ui{position:fixed;right:12px;bottom:12px;z-index:2147483647;display:flex;gap:6px;align-items:center;
+      #cs-ui{position:fixed;right:12px;bottom:12px;z-index:2147483647;display:flex;flex-wrap:wrap;gap:6px;align-items:center;
+        max-width:calc(100vw - 24px);box-sizing:border-box;
         padding:8px;border-radius:12px;background:#1c1c1e;color:#fff;font:16px/1 system-ui,sans-serif;
         box-shadow:0 2px 12px rgba(0,0,0,.4)}
       #cs-ui button{min-width:44px;min-height:44px;border:0;border-radius:8px;background:#3a3a3c;color:#fff;font:inherit;cursor:pointer}
@@ -203,7 +227,7 @@ if (typeof document !== 'undefined' && document.querySelector('span.c_chord')) (
     <button id="cs-down" aria-label="ຫຼຸດ capo">−</button>
     <span id="cs-capo" aria-live="polite"></span>
     <button id="cs-up" aria-label="ເພີ່ມ capo">+</button>
-    <span id="cs-dbg" style="font:12px monospace;white-space:pre"></span>`;
+    <span id="cs-dbg" style="font:12px monospace;flex-basis:100%"></span>`;
   document.body.appendChild(ui);
   const go = ui.querySelector('#cs-go'), capoLabel = ui.querySelector('#cs-capo');
 
@@ -302,7 +326,8 @@ if (typeof document !== 'undefined' && document.querySelector('span.c_chord')) (
       // temporary readout for tuning: volume, then fit of current / next / next+1 chord
       const cl = clean(chroma) || chroma;
       const fit = i => steps[i] ? spans[steps[i].first].textContent + ' ' + score(cl, steps[i].pcs).toFixed(2) : '';
-      ui.querySelector('#cs-dbg').textContent = 'vol ' + chroma.reduce((a, b) => a + b, 0).toFixed(3) +
+      const n = loneNote(chroma);
+      ui.querySelector('#cs-dbg').textContent = (n < 0 ? '' : '🎤' + 'C C# D D# E F F# G G# A A# B'.split(' ')[n] + ' ') + 'vol ' + chroma.reduce((a, b) => a + b, 0).toFixed(3) +
         ' | ' + fit(before) + ' > ' + fit(before + 1) + ' > ' + fit(before + 2);
       if (follower.feed(chroma) !== before) show();
     }, 100);
